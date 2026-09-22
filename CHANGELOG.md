@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.2.0 - 2026-09-22
+
+- Added repeatable Linux attachment support to the Go SMTP client with MIME media-type detection and base64 encoding.
+- Added encoded-message size enforcement, regular-file and duplicate checks, and safe attachment filenames.
+- Documented all attachment flags, environment variables, Linux examples, dry-run inspection, security behavior, and troubleshooting steps.
+
 ## 1.1.1 - 2026-09-22
 
 - Updated the GitHub Actions checkout and Go setup steps to Node.js 24-compatible major versions.

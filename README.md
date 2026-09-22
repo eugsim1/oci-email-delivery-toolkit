@@ -1,6 +1,6 @@
 # OCI Email Delivery toolkit
 
-An implementation-ready package for sending application email through Oracle Cloud Infrastructure (OCI) Email Delivery. It combines training material, an editable architecture diagram, a detailed configuration runbook, and a dependency-free Go SMTP client.
+An implementation-ready package for sending application email and file attachments through Oracle Cloud Infrastructure (OCI) Email Delivery. It combines training material, an editable architecture diagram, a detailed configuration runbook, and a dependency-free Go SMTP client for Linux servers.
 
 > **Disclaimer:** This project is independent and is not affiliated with, endorsed by, or supported by Oracle or any Oracle product team. Validate all settings, limits, prices, and security requirements against the current official Oracle documentation and your organization's policies before production use.
 
@@ -19,7 +19,7 @@ The editable source is available as [a draw.io diagram](docs/architecture/oci-em
 | `presentations/03-oci-email-delivery-operations-and-go.pptx` | Go integration, secrets, observability, reputation, and troubleshooting |
 | `docs/oci-email-delivery-setup.md` | Complete implementation and operations runbook |
 | `docs/architecture/oci-email-delivery-architecture.drawio` | Editable system architecture |
-| `cmd/oci-smtp-mailer` | Go SMTP client supporting TLS and STARTTLS |
+| `cmd/oci-smtp-mailer` | Linux Go SMTP client supporting TLS, STARTTLS, text/HTML bodies, and file attachments |
 | `.env.example` | Configuration template containing no credentials |
 | `.github/workflows/release.yml` | Test-gated, commit-based GitHub release automation |
 
@@ -324,9 +324,22 @@ The program reads environment variables directly; it intentionally does not pars
 | `OCI_EMAIL_SUBJECT` | No | `OCI Email Delivery test` | Message subject; CR/LF is rejected |
 | `OCI_EMAIL_TEXT` | Conditional | empty | Plain-text body; set this, HTML, or both |
 | `OCI_EMAIL_HTML` | Conditional | empty | HTML body; set this, text, or both |
+| `OCI_EMAIL_ATTACHMENTS` | No | empty | Linux colon-separated attachment paths; relative paths use the process working directory |
+| `OCI_EMAIL_MAX_BYTES` | No | `2000000` | Maximum complete encoded MIME size, including headers and base64 |
 | `OCI_SMTP_TIMEOUT` | No | `30s` | Positive Go duration for network operations |
 
 Copy `.env.example` only as a field reference. Never commit a populated copy.
+
+### Command-line flags
+
+| Flag | Repeatable | Description |
+| --- | --- | --- |
+| `-attachment PATH` | Yes | Attach a regular file. Each use adds one file after any paths in `OCI_EMAIL_ATTACHMENTS`. |
+| `-max-message-bytes N` | No | Override `OCI_EMAIL_MAX_BYTES` for this invocation. `N` is a positive encoded-message limit in bytes; `0` keeps the environment/default value. |
+| `-dry-run` | No | Write the complete MIME message to standard output and make no network connection. |
+| `-h` | No | Print flag help and exit. |
+
+Environment variables hold connection and message defaults; flags are intended for per-run attachment paths, a controlled size override, and inspection. Never pass the SMTP password as a command-line flag because process arguments can be visible to other users and monitoring tools.
 
 ### Build on Linux
 
@@ -376,6 +389,8 @@ export OCI_EMAIL_CC=''
 export OCI_EMAIL_SUBJECT='OCI Email Delivery validation'
 export OCI_EMAIL_TEXT='This message validates the OCI SMTP configuration.'
 export OCI_EMAIL_HTML=''
+export OCI_EMAIL_ATTACHMENTS=''
+export OCI_EMAIL_MAX_BYTES='2000000'
 export OCI_SMTP_TIMEOUT='30s'
 
 go run ./cmd/oci-smtp-mailer
@@ -412,6 +427,8 @@ For a standalone host, run the binary as a non-login OS account and restrict the
    OCI_EMAIL_SUBJECT='OCI Email Delivery validation'
    OCI_EMAIL_TEXT='This message validates the OCI SMTP configuration.'
    OCI_EMAIL_HTML=''
+   OCI_EMAIL_ATTACHMENTS=''
+   OCI_EMAIL_MAX_BYTES='2000000'
    OCI_SMTP_TIMEOUT='30s'
    ```
 
@@ -435,27 +452,10 @@ For a standalone host, run the binary as a non-login OS account and restrict the
 
 Do not store credentials in command-line arguments, world-readable files, container images, GitHub Actions variables printed to logs, or source control. When the invoking application supplies per-message recipients, subjects, and bodies, expose only the SMTP connection values through its secret mechanism and set message values immediately before execution.
 
-### Optional PowerShell test
-
-Linux remains the primary runtime, but the same Go program can be tested from PowerShell:
-
-```powershell
-$env:OCI_SMTP_HOST = 'smtp.email.eu-frankfurt-1.oci.oraclecloud.com'
-$env:OCI_SMTP_PORT = '465'
-$env:OCI_SMTP_MODE = 'tls'
-$env:OCI_SMTP_USERNAME = '<oracle-generated-smtp-user>'
-$env:OCI_SMTP_PASSWORD = '<oracle-generated-smtp-password>'
-$env:OCI_EMAIL_FROM = 'no-reply@mail.example.com'
-$env:OCI_EMAIL_TO = 'recipient@example.net'
-$env:OCI_EMAIL_SUBJECT = 'OCI Email Delivery validation'
-$env:OCI_EMAIL_TEXT = 'This message validates the OCI SMTP configuration.'
-go run ./cmd/oci-smtp-mailer
-```
-
 A successful submission prints:
 
 ```text
-message accepted for delivery to 1 recipient(s)
+Email accepted by OCI Email Delivery for 1 recipient(s).
 ```
 
 This confirms SMTP acceptance, not inbox placement. Check OCI relay logs and the receiving system afterward.
@@ -472,15 +472,72 @@ export OCI_EMAIL_HTML='<p>This is the <strong>HTML</strong> version.</p>'
 ./bin/oci-smtp-mailer
 ```
 
-### Dry run
+### Send one attachment
 
-Inspect the generated MIME message without contacting OCI:
+Pass an absolute Linux path when the invocation may run from different working directories:
 
 ```bash
-./bin/oci-smtp-mailer -dry-run
+export OCI_EMAIL_SUBJECT='Monthly report'
+export OCI_EMAIL_TEXT='The monthly PDF report is attached.'
+./bin/oci-smtp-mailer \
+  -attachment /srv/reports/monthly-report.pdf
 ```
 
-The dry run still validates configuration and therefore requires placeholder SMTP credentials, but it does not print the password or open a network connection.
+The program reads the file before connecting to OCI, uses only its base filename (`monthly-report.pdf`) in the email, detects the MIME media type from the extension, and base64-encodes the content. If the extension is unknown, it uses `application/octet-stream`. The attachment must resolve to a regular file readable by the runtime account; directories, devices, duplicate paths, and missing files are rejected.
+
+### Send multiple attachments
+
+Repeat `-attachment` for the clearest per-run invocation:
+
+```bash
+./bin/oci-smtp-mailer \
+  -attachment /srv/reports/monthly-report.pdf \
+  -attachment /srv/reports/monthly-summary.csv
+```
+
+For a fixed Linux service configuration, use a colon-separated path list:
+
+```bash
+export OCI_EMAIL_ATTACHMENTS='/srv/reports/monthly-report.pdf:/srv/reports/monthly-summary.csv'
+./bin/oci-smtp-mailer
+```
+
+Paths supplied with `-attachment` are appended after paths from `OCI_EMAIL_ATTACHMENTS`. Do not specify the same absolute path in both places; the program rejects duplicates so an attachment is not sent twice accidentally.
+
+### Message-size limit
+
+OCI documents a default maximum message size of 2 MB, including headers, body, attachments, and base64 expansion. The client therefore uses a conservative `OCI_EMAIL_MAX_BYTES` default of `2000000` and validates the final encoded MIME message before opening an SMTP connection. Base64 usually adds about one third to the raw file size, and MIME headers and boundaries add more, so a raw file close to 2 MB will not fit in the default limit.
+
+If Oracle has approved a larger limit for the tenancy, set the approved encoded limit persistently or override it for one invocation:
+
+```bash
+export OCI_EMAIL_MAX_BYTES='10000000'
+./bin/oci-smtp-mailer -attachment /srv/reports/large-report.pdf
+
+# Equivalent one-run override:
+./bin/oci-smtp-mailer \
+  -max-message-bytes 10000000 \
+  -attachment /srv/reports/large-report.pdf
+```
+
+Do not raise the client limit merely to bypass a local error. First confirm the active tenancy limit in **Governance & Administration → Limits, Quotas and Usage** and obtain the required OCI limit increase. Oracle requires SPF and DKIM before considering an increase and currently documents a maximum approved message size of 60 MB.
+
+### Dry run
+
+Inspect the generated MIME message without contacting OCI. Redirect attachment-bearing output to a protected file because it contains the base64-encoded attachment data:
+
+```bash
+umask 077
+./bin/oci-smtp-mailer \
+  -dry-run \
+  -attachment /srv/reports/monthly-report.pdf \
+  > /tmp/oci-message.eml
+
+sed -n '1,40p' /tmp/oci-message.eml
+rm -f /tmp/oci-message.eml
+```
+
+The dry run requires valid `OCI_EMAIL_FROM`, `OCI_EMAIL_TO`, body, attachment, and size settings, but it does not require the SMTP host or credentials. It never prints a password or opens a network connection. Treat the generated `.eml` file as sensitive if the message or attachments contain confidential data.
 
 ## Client security behavior
 
@@ -488,7 +545,10 @@ The dry run still validates configuration and therefore requires placeholder SMT
 - Supports implicit TLS and STARTTLS; it never silently falls back to plaintext.
 - Rejects CR/LF in headers to prevent header injection.
 - Parses and validates mailbox addresses before connecting.
-- Generates MIME-safe subjects, bodies, boundaries, dates, and message IDs.
+- Generates MIME-safe subjects, bodies, boundaries, dates, message IDs, and attachment metadata.
+- Accepts only readable regular-file attachments, strips directory paths from MIME filenames, rejects duplicate absolute paths, and uses a safe fallback media type.
+- Wraps attachment base64 at the MIME-standard 76-character line length.
+- Rejects the final encoded message if it exceeds the configured limit before contacting OCI.
 - Does not log SMTP credentials or message bodies during a normal send.
 - Uses configurable connection and command deadlines.
 
@@ -564,6 +624,10 @@ Never commit SMTP credentials, paste them into tickets or presentations, or reus
 | DKIM fail | Wrong selector/target or propagation delay | Compare the published CNAME exactly with OCI and recheck activation |
 | DMARC fail | Visible `From` is not aligned with authenticated domain | Inspect message headers and align SPF and/or DKIM with the `From` domain |
 | Throttling | Current rate or volume exceeds an applicable limit | Queue, back off with jitter, reduce concurrency, and review service limits |
+| `attachment error: open ...` | Missing path or Linux runtime account lacks access | Use an absolute path and grant the service account read access without making the file world-readable |
+| `is not a regular file` | Path identifies a directory, device, socket, or pipe | Attach a regular file; create an immutable export first if the source is streamed data |
+| Duplicate attachment error | Same absolute path appears in the environment and/or flags | Remove the duplicate from `OCI_EMAIL_ATTACHMENTS` or `-attachment` arguments |
+| Encoded message exceeds limit | Body plus base64-expanded attachments is too large | Reduce or split files, use a secure download link, or set only an OCI-approved larger limit |
 
 The [full runbook](docs/oci-email-delivery-setup.md) contains a longer troubleshooting matrix and production-readiness checklist.
 
@@ -582,6 +646,8 @@ The [full runbook](docs/oci-email-delivery-setup.md) contains a longer troublesh
 - [ ] Linux DNS resolution and implicit TLS connectivity to port `465` have been tested.
 - [ ] The application uses the endpoint copied from the OCI Configuration page.
 - [ ] The client passes `go test`, `go vet`, and the dry-run MIME inspection.
+- [ ] Every attachment path is absolute, readable only by intended runtime identities, and points to a regular file.
+- [ ] The configured encoded-message limit matches the active OCI tenancy limit, and representative attachments pass dry-run validation.
 - [ ] A controlled live message appears in accepted and relayed logs and reaches the test mailbox.
 - [ ] Tenancy limits and compartment quotas cover planned recipients, rate, and encoded message size.
 - [ ] Retry logic backs off on temporary errors and does not retry permanent failures indefinitely.

@@ -1,6 +1,6 @@
 # Oracle Cloud Infrastructure Email Delivery: configuration runbook
 
-This runbook describes a production-oriented SMTP setup for OCI Email Delivery and shows how to use the included Go client. Linux is the primary runtime; PowerShell remains available for secondary testing. It was checked against Oracle documentation on 22 September 2026. OCI menus and account limits can change, so use the values shown in your tenancy when they differ from examples here.
+This runbook describes a production-oriented SMTP setup for OCI Email Delivery and shows how to use the included Linux Go client. It was checked against Oracle documentation on 22 September 2026. OCI menus and account limits can change, so use the values shown in your tenancy when they differ from examples here.
 
 > This project is independent and is not affiliated with, endorsed by, or supported by Oracle or any Oracle product team.
 
@@ -230,7 +230,7 @@ Always copy the endpoint shown in the target region's Configuration page. Do not
 
 ## 13. Configure and run the Go client
 
-The included client uses implicit TLS by default, authenticates with `AUTH PLAIN` only inside the encrypted connection, validates recipient syntax, blocks subject-header injection, and sends plain text or `multipart/alternative` content.
+The included Linux client uses implicit TLS by default, authenticates with `AUTH PLAIN` only inside the encrypted connection, validates recipient syntax, blocks subject-header injection, and sends plain text, `multipart/alternative` content, and base64-encoded file attachments.
 
 Required variables:
 
@@ -251,25 +251,11 @@ Optional variables:
 | `OCI_SMTP_MODE` | `tls` | `tls` for implicit TLS, or `starttls` if explicitly supported by the endpoint |
 | `OCI_EMAIL_CC` | empty | Comma-separated carbon-copy recipients |
 | `OCI_EMAIL_SUBJECT` | `OCI Email Delivery test` | Message subject |
+| `OCI_EMAIL_ATTACHMENTS` | empty | Colon-separated Linux paths to regular files |
+| `OCI_EMAIL_MAX_BYTES` | `2000000` | Maximum complete encoded MIME message in bytes |
 | `OCI_SMTP_TIMEOUT` | `30s` | Overall connection and SMTP deadline |
 
-PowerShell (secondary test environment):
-
-```powershell
-Set-Location <toolkit-directory>
-$env:OCI_SMTP_HOST = 'smtp.email.eu-frankfurt-1.oci.oraclecloud.com'
-$env:OCI_SMTP_PORT = '465'
-$env:OCI_SMTP_MODE = 'tls'
-$env:OCI_SMTP_USERNAME = '<oracle-generated-smtp-user>'
-$env:OCI_SMTP_PASSWORD = '<oracle-generated-smtp-password>'
-$env:OCI_EMAIL_FROM = 'no-reply@mail.example.com'
-$env:OCI_EMAIL_TO = 'recipient@example.net'
-$env:OCI_EMAIL_SUBJECT = 'OCI Email Delivery validation'
-$env:OCI_EMAIL_TEXT = 'This message validates the OCI SMTP configuration.'
-go run ./cmd/oci-smtp-mailer
-```
-
-Linux (primary runtime) or macOS:
+Linux runtime:
 
 ```bash
 cd <toolkit-directory>
@@ -282,21 +268,54 @@ export OCI_EMAIL_FROM='no-reply@mail.example.com'
 export OCI_EMAIL_TO='recipient@example.net'
 export OCI_EMAIL_SUBJECT='OCI Email Delivery validation'
 export OCI_EMAIL_TEXT='This message validates the OCI SMTP configuration.'
+export OCI_EMAIL_ATTACHMENTS=''
+export OCI_EMAIL_MAX_BYTES='2000000'
 go run ./cmd/oci-smtp-mailer
 ```
 
 HTML plus text alternative:
 
-```powershell
-$env:OCI_EMAIL_TEXT = 'Your report is ready.'
-$env:OCI_EMAIL_HTML = '<html><body><p>Your <strong>report</strong> is ready.</p></body></html>'
+```bash
+export OCI_EMAIL_TEXT='Your report is ready.'
+export OCI_EMAIL_HTML='<html><body><p>Your <strong>report</strong> is ready.</p></body></html>'
 go run ./cmd/oci-smtp-mailer
 ```
+
+Attachment flags:
+
+| Flag | Meaning |
+| --- | --- |
+| `-attachment PATH` | Attach one regular file; repeat the flag for multiple files |
+| `-max-message-bytes N` | Override the configured encoded-message limit for this run |
+| `-dry-run` | Write the complete MIME message to standard output without an SMTP connection |
+
+Send one or more attachments:
+
+```bash
+go run ./cmd/oci-smtp-mailer \
+  -attachment /srv/reports/report.pdf \
+  -attachment /srv/reports/summary.csv
+```
+
+The client uses each path's base filename in the MIME message, detects the media type from the extension, and falls back to `application/octet-stream`. It rejects missing paths, non-regular files, duplicate absolute paths, unsafe filenames, and a final encoded message larger than `OCI_EMAIL_MAX_BYTES`. Base64 expands binary data by about one third, so size the raw attachments conservatively.
+
+For fixed Linux jobs, `OCI_EMAIL_ATTACHMENTS` accepts a colon-separated list:
+
+```bash
+export OCI_EMAIL_ATTACHMENTS='/srv/reports/report.pdf:/srv/reports/summary.csv'
+go run ./cmd/oci-smtp-mailer
+```
+
+Flags append to the environment list. Oracle documents a 2 MB default message limit including headers and base64. Increase `OCI_EMAIL_MAX_BYTES` or use `-max-message-bytes` only after confirming that OCI approved a higher tenancy limit.
 
 Inspect the MIME output without contacting OCI:
 
 ```bash
-go run ./cmd/oci-smtp-mailer -dry-run
+umask 077
+go run ./cmd/oci-smtp-mailer \
+  -attachment /srv/reports/report.pdf \
+  -dry-run > /tmp/oci-message.eml
+rm -f /tmp/oci-message.eml
 ```
 
 Build and test:
@@ -393,6 +412,9 @@ Because a user may have two SMTP credentials, use an overlap rotation:
 | DKIM inactive | Wrong CNAME name or target, DNS caching | Compare OCI values character by character and wait for TTL expiry |
 | Rate or daily limit error | Tenancy limit exceeded | Check Limits, Quotas and Usage; reduce rate; request an increase after SPF and DKIM are active |
 | Message-size error | MIME/base64 content exceeds the limit | Reduce body or attachments; remember that base64 and headers count toward encoded size |
+| Attachment cannot be opened | Missing path or Linux permission failure | Use an absolute path and grant the runtime account read access without making the file world-readable |
+| Attachment is not a regular file | Path identifies a directory, device, socket, or pipe | Export the content to a regular file before invoking the client |
+| Duplicate attachment | Same absolute path appears more than once | Remove the duplicate from the environment or repeated flags |
 
 Connectivity test for implicit TLS:
 
@@ -415,6 +437,8 @@ openssl s_client -connect smtp.email.eu-frankfurt-1.oci.oraclecloud.com:465 \
 - [ ] Suppression handling and recipient-consent processes are documented.
 - [ ] Alerts cover bounces, complaints, suppressions, and unexpected volume.
 - [ ] Retry logic distinguishes temporary from permanent failures.
+- [ ] Attachment files are regular files, use absolute paths, and have least-privilege Linux ownership and permissions.
+- [ ] Representative attachment messages pass dry-run validation within the active encoded-message limit.
 - [ ] Credential rotation has an owner and schedule.
 - [ ] The tenancy's actual limits support the planned volume and message size.
 
