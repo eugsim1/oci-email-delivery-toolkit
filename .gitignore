@@ -2,6 +2,7 @@
 *.log
 /oci-smtp-mailer
 /oci-smtp-mailer.exe
+/bin/
 dist/
 .gocache/
 *.zip

@@ -4,6 +4,8 @@ An implementation-ready package for sending application email through Oracle Clo
 
 > **Disclaimer:** This project is independent and is not affiliated with, endorsed by, or supported by Oracle or any Oracle product team. Validate all settings, limits, prices, and security requirements against the current official Oracle documentation and your organization's policies before production use.
 
+The configuration procedure was revalidated against Oracle's official documentation on 22 September 2026. OCI Console labels, service limits, and realm-specific DNS values can change; values displayed in your tenancy take precedence over examples in this repository.
+
 ![OCI Email Delivery architecture](docs/architecture/oci-email-delivery-architecture.png)
 
 The editable source is available as [a draw.io diagram](docs/architecture/oci-email-delivery-architecture.drawio).
@@ -53,47 +55,261 @@ git clone https://github.com/eugsim1/oci-email-delivery-toolkit.git
 cd oci-email-delivery-toolkit
 ```
 
-## End-to-end setup
+## Complete OCI Email Delivery configuration
 
-The full click-by-click and command-level procedure is in [the configuration runbook](docs/oci-email-delivery-setup.md). The required sequence is:
+This section is intentionally self-contained. Complete the steps in order because later resources depend on the earlier identity, regional, and DNS choices. The separate [configuration runbook](docs/oci-email-delivery-setup.md) remains available as a printable operational reference.
 
-1. **Choose the region and compartment.** Keep the SMTP endpoint, email domain, approved sender, logging, and operational checks aligned to that region.
-2. **Create a dedicated IAM identity.** Avoid using a personal administrator. Add the identity to a narrowly scoped group.
-3. **Create IAM policies.** Grant only the permissions needed to send email and, separately, to administer domains, approved senders, suppressions, logs, or metrics.
-4. **Generate SMTP credentials.** In the IAM user's resources, generate an SMTP credential and immediately store the username and password in an approved secret manager. The password is shown only when generated.
-5. **Create the email domain.** Add the sending domain in OCI Email Delivery in the target region and compartment.
-6. **Enable logs before testing.** Enable both `OutboundAccepted` and `OutboundRelayed` logs on the email domain so acceptance and downstream relay can be distinguished.
-7. **Publish SPF.** Use the exact regional include value displayed by OCI. A domain must have only one SPF TXT record; merge mechanisms instead of adding a second record.
-8. **Configure DKIM.** Create a DKIM selector in OCI, publish the exact CNAME record in DNS, and wait for OCI to report it as active.
-9. **Publish DMARC.** Begin with a monitoring policy if appropriate for the organization, review reports, then increase enforcement deliberately.
-10. **Create an approved sender.** Authorize the exact `From` address, unless the selected OCI configuration supports sending from the verified DKIM domain without one.
-11. **Copy the public SMTP endpoint.** Obtain it from the regional Email Delivery Configuration page. Do not construct or guess it.
-12. **Configure and run the client.** Use TLS, the Oracle-generated credentials, and a `From` address authorized in the same region.
-13. **Validate delivery.** Confirm client success, `OutboundAccepted`, `OutboundRelayed`, recipient arrival, and SPF/DKIM/DMARC results in the received message headers.
+### Step 1 — Record the deployment values
 
-## IAM guidance
+Choose the values before creating resources. Keep the regional values together throughout the setup.
 
-Separate sending from administration. A workload identity generally needs only permission to use approved senders. Operators may separately need permission to manage email domains, approved senders, suppressions, logging configuration, and metrics. Scope policies to the smallest practical compartment and use your tenancy's current policy syntax from the official documentation.
+| Setting | Example | Why it matters |
+| --- | --- | --- |
+| OCI region | `eu-frankfurt-1` | Email domains, approved senders, endpoints, logs, and suppressions are regional |
+| Compartment | `EmailPlatform` | Scopes resources, policy, ownership, quotas, and cost controls |
+| Identity domain | `Default` | Required in IAM group references for identity-domain tenancies |
+| Sender group | `oci-email-senders` | Receives only the runtime permission required to send |
+| Administrator group | `oci-email-admins` | Manages domains, senders, suppressions, logging, and credentials |
+| Service user | `svc-email-prod` | Owns the application SMTP credentials |
+| Email domain | `mail.example.com` | Must be a public domain or subdomain controlled by the organization |
+| Sender | `no-reply@mail.example.com` | Must be approved in the same region as the SMTP endpoint |
+| Linux host | Application server or container | Must reach the regional endpoint on TCP port `465` |
 
-Do not grant broad tenancy-wide administration merely to send mail. Where the workload runs on OCI, evaluate resource principals or instance principals for other OCI API calls; SMTP submission itself still uses SMTP credentials.
+Do not use a public mailbox-provider domain such as `gmail.com`, `hotmail.com`, or `yahoo.com`; the email domain must be one for which you can publish public DNS records. Avoid the root compartment for approved senders so policy can remain compartment-specific.
 
-## DNS authentication
+### Step 2 — Select the target region and compartment
 
-### SPF
+1. Sign in to the OCI Console.
+2. Use the region selector in the Console header to select the intended sending region.
+3. Open **Identity & Security → Compartments**.
+4. Create or select a compartment dedicated to the email workload, such as `EmailPlatform`.
+5. Record the compartment name and OCID for operations and automation.
+6. Confirm the region again before creating each Email Delivery resource.
 
-Publish the TXT value shown in the OCI Console for the selected region. SPF authorizes the OCI sending infrastructure to send on behalf of the envelope domain. There must be one syntactically valid SPF record at a domain; if other providers send mail for the same domain, combine their mechanisms and stay within SPF lookup limits.
+SMTP credentials are global IAM credentials, but approved senders, email domains, SMTP endpoints, logs, and suppression lists are regional. To send from a second region, repeat the regional resource configuration there and use that region's endpoint.
 
-### DKIM
+### Step 3 — Create dedicated IAM groups and a service user
 
-OCI provides a selector and CNAME target. Publish both exactly as supplied, then wait for DNS propagation and OCI activation. DKIM cryptographically signs messages and supports domain alignment for DMARC.
+Use a non-human identity for SMTP rather than an administrator's personal account.
 
-### DMARC
+1. Open **Identity & Security → Domains** and select the identity domain that will hold the user, commonly **Default**.
+2. Open **Groups** and create `oci-email-senders`.
+3. Create `oci-email-admins` if a suitable administration group does not already exist.
+4. Open **Users** and create a user such as `svc-email-prod`.
+5. Do not grant the service user a Console password unless another documented requirement needs one.
+6. Add the service user to `oci-email-senders`.
+7. Open the user's capabilities and confirm **Can use SMTP credentials** is enabled. OCI normally enables credential capabilities by default, but an administrator can disable them.
+8. Keep human administrators in `oci-email-admins`; do not add the application user to that group.
 
-DMARC evaluates alignment between the visible `From` domain and SPF and/or DKIM. A staged rollout such as monitoring, quarantine, then reject may reduce accidental disruption. Route aggregate reports to a controlled mailbox or reporting service and review them.
+This separation lets the application submit mail without gaining permission to create domains, remove suppressions, or administer other identities.
 
-## Configure the Go client
+### Step 4 — Create least-privilege IAM policies
 
-The program reads environment variables directly; it intentionally does not load `.env` files. Use a secret manager or your platform's protected environment configuration in production.
+1. Open **Identity & Security → Policies**.
+2. Select the compartment in which your organization manages policies.
+3. Select **Create Policy**.
+4. Enter a stable name and description.
+5. Use the **Email Management** policy-builder use case or enable the manual editor.
+6. Replace the example identity domain, group, and compartment names below with your actual values.
+
+Minimum runtime permission:
+
+```text
+Allow group 'Default'/'oci-email-senders' to use email-family in compartment EmailPlatform
+```
+
+Administrative permissions:
+
+```text
+Allow group 'Default'/'oci-email-admins' to manage email-family in compartment EmailPlatform
+Allow group 'Default'/'oci-email-admins' to manage credentials in compartment EmailPlatform where target.credential.type = 'smtp'
+Allow group 'Default'/'oci-email-admins' to manage suppressions in tenancy
+Allow group 'Default'/'oci-email-admins' to manage log-groups in compartment EmailPlatform
+Allow group 'Default'/'oci-email-admins' to read log-content in compartment EmailPlatform
+```
+
+7. Create the policy and allow a short propagation interval; Oracle states that a new policy normally becomes effective within seconds.
+8. Confirm the service user is in the sender group and is not receiving administrative access through another group.
+
+`use email-family` includes the `SmtpSend` permission through `APPROVED_SENDER_USE`. The suppression policy is tenancy-scoped because the regional suppression list is a tenancy-level resource. Identity-domain syntax can differ for older tenancy layouts, so use the policy builder and current OCI policy reference if your tenancy does not accept the quoted `domain/group` form.
+
+### Step 5 — Generate and store SMTP credentials
+
+1. Open the dedicated user's details:
+   - For an administrator: **Identity & Security → Domains → _identity-domain_ → Users → _service-user_**.
+   - For your own user: open the profile menu and select **User settings**.
+2. Under the user's resources, select **SMTP credentials**.
+3. Select **Generate SMTP credentials**.
+4. Enter a description containing the application, environment, intended region, and creation date.
+5. Select **Generate credentials**.
+6. Immediately copy both the generated username and password to an approved secret manager.
+7. Verify that both values are recoverable from the secret manager before closing the dialog. OCI does not display the password again.
+
+Do not substitute the Console password, user OCID, auth token, API key fingerprint, or private key. SMTP credentials are Oracle-generated, do not expire automatically, and each IAM user can hold at most two at a time. The two-credential limit enables overlap during rotation.
+
+### Step 6 — Create the regional email domain
+
+1. Confirm the selected OCI region.
+2. Open **Developer Services → Application Integration → Email Delivery**.
+3. Select **Email Domains**.
+4. Select the target compartment.
+5. Select **Create Email Domain**.
+6. Enter the exact domain after `@` in the planned sender, for example `mail.example.com`.
+7. Add organization-required tags, if any.
+8. Select **Create** and record the email-domain OCID.
+
+The domain must be publicly registered and controlled in DNS. A resource for `mail.example.com` covers that exact domain, not `example.com` or a different subdomain.
+
+### Step 7 — Enable acceptance and relay logs before testing
+
+1. Open the newly created email domain.
+2. Select **Logs**, or open the **Email Deliverability and Reputation Governance** dashboard.
+3. Enable **Outbound Accepted** (`OutboundAccepted`).
+4. Enable **Outbound Relayed** (`OutboundRelayed`).
+5. Select or create the appropriate log group and configure retention according to policy.
+6. Open **Observability & Management → Logging → Log Search** and confirm administrators can access the selected log group.
+
+`OutboundAccepted` records successful and failed submissions, invalid senders, and suppressed recipients. `OutboundRelayed` records downstream relay, bounces, complaints, unsubscribes, opens, and clicks. Enabling both prevents an SMTP acceptance response from being mistaken for confirmed delivery.
+
+### Step 8 — Publish SPF
+
+1. Query the sending domain's current TXT records before making a change:
+
+   ```bash
+   dig +short TXT mail.example.com
+   ```
+
+2. Copy the SPF value shown for the target configuration in OCI or use the applicable documented commercial-region value:
+
+   | Sending geography | SPF TXT value |
+   | --- | --- |
+   | Americas | `v=spf1 include:rp.oracleemaildelivery.com ~all` |
+   | Asia/Pacific | `v=spf1 include:ap.rp.oracleemaildelivery.com ~all` |
+   | Europe | `v=spf1 include:eu.rp.oracleemaildelivery.com ~all` |
+   | All commercial regions | `v=spf1 include:rp.oracleemaildelivery.com include:ap.rp.oracleemaildelivery.com include:eu.rp.oracleemaildelivery.com ~all` |
+
+3. At the authoritative DNS provider, create a TXT record on the sending/return-path domain.
+4. If an SPF record already exists, merge the OCI `include` mechanism into that record. Never publish multiple independent `v=spf1` TXT records at the same name.
+5. Wait for DNS propagation and verify from a public resolver:
+
+   ```bash
+   dig +short TXT mail.example.com @1.1.1.1
+   ```
+
+6. Confirm that the final record remains within SPF's DNS-lookup constraints and preserves any other legitimate senders.
+
+For government or sovereign realms, use the realm-specific value in the OCI Console and official documentation rather than the commercial examples above.
+
+### Step 9 — Configure DKIM and publish the DNS record
+
+1. Open **Email Delivery → Email Domains** and select the domain.
+2. Select **DKIM → Add DKIM**.
+3. Select **Add new DKIM**, then **Next**.
+4. Enter a rotation-friendly selector, for example `oci2026a`. OCI permits up to 63 lowercase alphanumeric characters and dashes.
+5. Select **Next → Generate DKIM Record**.
+6. Copy the generated CNAME record name and CNAME target exactly. Non-commercial realms may instead provide a DKIM TXT value.
+7. Publish the record at the authoritative DNS provider. Do not append the domain twice if the DNS provider automatically adds the zone name.
+8. Return to OCI and select **Add DKIM**.
+9. Verify public DNS after propagation:
+
+   ```bash
+   dig +short CNAME '<selector>._domainkey.mail.example.com' @1.1.1.1
+   ```
+
+10. Wait until OCI reports DKIM signing as active before creating a domain-wide approved sender.
+
+OCI supports two DKIM keys per email domain but only one active key at a time. Oracle recommends rotating DKIM keys every six months. Only approved senders whose domain exactly matches the configured email domain receive that domain's signature.
+
+### Step 10 — Publish a staged DMARC policy
+
+DMARC is not configured in the OCI Console; it is a DNS policy for the visible `From` domain.
+
+1. Create a mailbox or reporting service capable of receiving DMARC aggregate reports.
+2. Publish a TXT record at `_dmarc.<sending-domain>` with an initial monitoring policy, for example:
+
+   ```text
+   v=DMARC1; p=none; rua=mailto:dmarc-reports@example.com; fo=1
+   ```
+
+3. Verify it publicly:
+
+   ```bash
+   dig +short TXT _dmarc.mail.example.com @1.1.1.1
+   ```
+
+4. Review reports until every legitimate sender is aligned through SPF and/or DKIM.
+5. Move deliberately to `p=quarantine` and then `p=reject` only after confirming the effect on all mail sources.
+
+OCI Email Delivery does not provide an inbox or automated DMARC report processing. The reporting mailbox must be hosted elsewhere.
+
+### Step 11 — Create the regional approved sender
+
+1. Confirm the OCI Console is still in the intended sending region.
+2. Open **Email Delivery → Approved Senders**.
+3. Select the target non-root compartment.
+4. Select **Create Approved Sender**.
+5. Enter the exact visible `From` address, for example `no-reply@mail.example.com`.
+6. Add tags if required and select **Create Approved Sender**.
+7. Allow a short propagation interval before the first send. Retry an immediate authorization failure with backoff.
+
+Every `From` address must be approved. To authorize every address in a domain, first make DKIM active and then create the approved sender as `@mail.example.com`. Approved senders are unique to a region; repeat this step in every sending region.
+
+### Step 12 — Optionally configure a custom return path
+
+A custom return path can improve alignment and branding, but Oracle recommends prioritizing DKIM first.
+
+1. Choose a regional subdomain such as `<region-key>.rp.mail.example.com`.
+2. In the email-domain settings, create the custom return path using a domain that matches or is a subdomain of the approved sender's domain.
+3. Publish the exact MX target shown by OCI. For commercial regions the documented pattern is:
+
+   ```text
+   10 bmta.email.<region-identifier>.oci.oraclecloud.com
+   ```
+
+4. Publish the applicable regional SPF record on the return-path subdomain.
+5. Verify the MX and TXT records from a public resolver.
+6. Wait until OCI reports the return path as active before relying on it.
+
+Always use the exact region identifier and Console-generated values. A return-path record for one region must not be reused blindly in another region or realm.
+
+### Step 13 — Copy the regional SMTP endpoint and TLS mode
+
+1. Open **Email Delivery → Configuration** in the target region.
+2. In the SMTP sending information panel, copy the **Public endpoint**.
+3. Record port `465` and implicit TLS as the primary connection mode.
+4. Do not guess an endpoint from its naming pattern, particularly in sovereign realms.
+
+Typical commercial endpoint form:
+
+```text
+smtp.email.<region>.oci.oraclecloud.com:465
+```
+
+OCI requires encryption in transit. Port `465` negotiates TLS as soon as the connection starts rather than first establishing a plaintext SMTP session and upgrading with STARTTLS.
+
+### Step 14 — Confirm service limits, quotas, and network egress
+
+1. Open **Governance & Administration → Limits, Quotas and Usage**.
+2. Filter for Email Delivery and record the tenancy's current daily volume, send rate, approved-sender count, domain count, and maximum message size.
+3. If compartment quotas are used, confirm that `max-emails-day`, `sendrate`, `max-message-size`, `approved-sender-count`, and `email-domain-count` permit the workload.
+4. From the Linux runtime host, validate DNS resolution and the TLS path:
+
+   ```bash
+   getent ahosts smtp.email.eu-frankfurt-1.oci.oraclecloud.com
+   openssl s_client \
+     -connect smtp.email.eu-frankfurt-1.oci.oraclecloud.com:465 \
+     -servername smtp.email.eu-frankfurt-1.oci.oraclecloud.com \
+     -brief </dev/null
+   ```
+
+5. If the connection fails, review outbound firewall, proxy, NAT, route-table, network-security-group, security-list, and host-firewall rules. Only outbound connectivity is required; do not expose an inbound SMTP listener.
+6. Complete SPF and DKIM before requesting a limit increase. Check the actual Console limits because account type and approved increases can change the defaults.
+
+## Linux installation and Go client configuration
+
+Linux is the primary supported runtime for the included client. The executable sends one message and exits, making it suitable for application invocation, batch jobs, schedulers, and container workloads. It is not a long-running SMTP server and does not open an inbound network port.
+
+The program reads environment variables directly; it intentionally does not parse `.env` files. In production, inject values from a secret manager, container secret, protected service environment, or root-controlled environment file.
 
 | Variable | Required | Default | Description |
 | --- | --- | --- | --- |
@@ -110,9 +326,118 @@ The program reads environment variables directly; it intentionally does not load
 | `OCI_EMAIL_HTML` | Conditional | empty | HTML body; set this, text, or both |
 | `OCI_SMTP_TIMEOUT` | No | `30s` | Positive Go duration for network operations |
 
-Copy `.env.example` as a reference, but never place real credentials in a committed file.
+Copy `.env.example` only as a field reference. Never commit a populated copy.
 
-### PowerShell example
+### Build on Linux
+
+1. Confirm that Go 1.21 or later is installed:
+
+   ```bash
+   go version
+   ```
+
+2. Clone, test, vet, and build the project:
+
+   ```bash
+   git clone https://github.com/eugsim1/oci-email-delivery-toolkit.git
+   cd oci-email-delivery-toolkit
+   go test ./...
+   go vet ./...
+   mkdir -p bin
+   go build -trimpath -o bin/oci-smtp-mailer ./cmd/oci-smtp-mailer
+   ```
+
+3. Inspect the executable and optionally install it system-wide:
+
+   ```bash
+   file bin/oci-smtp-mailer
+   ./bin/oci-smtp-mailer -h
+   sudo install -o root -g root -m 0755 \
+     bin/oci-smtp-mailer /usr/local/bin/oci-smtp-mailer
+   ```
+
+No third-party Go modules are required. For a reproducible build, compile the same commit that passed CI and record `git rev-parse HEAD` with the deployed artifact.
+
+### First Linux test using the current shell
+
+Use placeholders until OCI setup is complete. Prompt for the password so the real value is not stored in shell history:
+
+```bash
+export OCI_SMTP_HOST='smtp.email.eu-frankfurt-1.oci.oraclecloud.com'
+export OCI_SMTP_PORT='465'
+export OCI_SMTP_MODE='tls'
+export OCI_SMTP_USERNAME='<oracle-generated-smtp-user>'
+read -rsp 'OCI SMTP password: ' OCI_SMTP_PASSWORD
+printf '\n'
+export OCI_SMTP_PASSWORD
+export OCI_EMAIL_FROM='no-reply@mail.example.com'
+export OCI_EMAIL_TO='recipient@example.net'
+export OCI_EMAIL_CC=''
+export OCI_EMAIL_SUBJECT='OCI Email Delivery validation'
+export OCI_EMAIL_TEXT='This message validates the OCI SMTP configuration.'
+export OCI_EMAIL_HTML=''
+export OCI_SMTP_TIMEOUT='30s'
+
+go run ./cmd/oci-smtp-mailer
+
+unset OCI_SMTP_PASSWORD OCI_SMTP_USERNAME
+```
+
+Replace the hostname with the endpoint copied from **Email Delivery → Configuration**, and make `OCI_EMAIL_FROM` exactly match the regional approved sender or DKIM-enabled approved domain.
+
+### Protected Linux runtime configuration
+
+For a standalone host, run the binary as a non-login OS account and restrict the environment file. A production secret manager is preferable when available.
+
+1. Create the runtime identity and configuration directory:
+
+   ```bash
+   sudo useradd --system --home-dir /nonexistent \
+     --shell /usr/sbin/nologin oci-mailer
+   sudo install -d -o root -g oci-mailer -m 0750 /etc/oci-smtp-mailer
+   sudoedit /etc/oci-smtp-mailer/runtime.env
+   ```
+
+2. Add the variables to `runtime.env` without an `export` prefix:
+
+   ```bash
+   OCI_SMTP_HOST='smtp.email.eu-frankfurt-1.oci.oraclecloud.com'
+   OCI_SMTP_PORT='465'
+   OCI_SMTP_MODE='tls'
+   OCI_SMTP_USERNAME='<oracle-generated-smtp-user>'
+   OCI_SMTP_PASSWORD='<oracle-generated-smtp-password>'
+   OCI_EMAIL_FROM='no-reply@mail.example.com'
+   OCI_EMAIL_TO='recipient@example.net'
+   OCI_EMAIL_CC=''
+   OCI_EMAIL_SUBJECT='OCI Email Delivery validation'
+   OCI_EMAIL_TEXT='This message validates the OCI SMTP configuration.'
+   OCI_EMAIL_HTML=''
+   OCI_SMTP_TIMEOUT='30s'
+   ```
+
+3. Restrict ownership and permissions:
+
+   ```bash
+   sudo chown root:oci-mailer /etc/oci-smtp-mailer/runtime.env
+   sudo chmod 0640 /etc/oci-smtp-mailer/runtime.env
+   ```
+
+4. Run one controlled submission as the non-login account:
+
+   ```bash
+   sudo -u oci-mailer sh -c '
+     set -a
+     . /etc/oci-smtp-mailer/runtime.env
+     set +a
+     exec /usr/local/bin/oci-smtp-mailer
+   '
+   ```
+
+Do not store credentials in command-line arguments, world-readable files, container images, GitHub Actions variables printed to logs, or source control. When the invoking application supplies per-message recipients, subjects, and bodies, expose only the SMTP connection values through its secret mechanism and set message values immediately before execution.
+
+### Optional PowerShell test
+
+Linux remains the primary runtime, but the same Go program can be tested from PowerShell:
 
 ```powershell
 $env:OCI_SMTP_HOST = 'smtp.email.eu-frankfurt-1.oci.oraclecloud.com'
@@ -120,31 +445,10 @@ $env:OCI_SMTP_PORT = '465'
 $env:OCI_SMTP_MODE = 'tls'
 $env:OCI_SMTP_USERNAME = '<oracle-generated-smtp-user>'
 $env:OCI_SMTP_PASSWORD = '<oracle-generated-smtp-password>'
-$env:OCI_EMAIL_FROM = 'no-reply@example.com'
+$env:OCI_EMAIL_FROM = 'no-reply@mail.example.com'
 $env:OCI_EMAIL_TO = 'recipient@example.net'
-$env:OCI_EMAIL_CC = ''
-$env:OCI_EMAIL_SUBJECT = 'OCI Email Delivery test'
-$env:OCI_EMAIL_TEXT = 'Hello from OCI Email Delivery.'
-$env:OCI_EMAIL_HTML = ''
-$env:OCI_SMTP_TIMEOUT = '30s'
-
-go run ./cmd/oci-smtp-mailer
-```
-
-### Linux or macOS example
-
-```bash
-export OCI_SMTP_HOST='smtp.email.eu-frankfurt-1.oci.oraclecloud.com'
-export OCI_SMTP_PORT='465'
-export OCI_SMTP_MODE='tls'
-export OCI_SMTP_USERNAME='<oracle-generated-smtp-user>'
-export OCI_SMTP_PASSWORD='<oracle-generated-smtp-password>'
-export OCI_EMAIL_FROM='no-reply@example.com'
-export OCI_EMAIL_TO='recipient@example.net'
-export OCI_EMAIL_SUBJECT='OCI Email Delivery test'
-export OCI_EMAIL_TEXT='Hello from OCI Email Delivery.'
-export OCI_SMTP_TIMEOUT='30s'
-
+$env:OCI_EMAIL_SUBJECT = 'OCI Email Delivery validation'
+$env:OCI_EMAIL_TEXT = 'This message validates the OCI SMTP configuration.'
 go run ./cmd/oci-smtp-mailer
 ```
 
@@ -160,12 +464,12 @@ This confirms SMTP acceptance, not inbox placement. Check OCI relay logs and the
 
 Use comma-separated address lists. Set both bodies to generate a `multipart/alternative` message:
 
-```powershell
-$env:OCI_EMAIL_TO = 'first@example.net,second@example.net'
-$env:OCI_EMAIL_CC = 'audit@example.net'
-$env:OCI_EMAIL_TEXT = 'This is the plain-text version.'
-$env:OCI_EMAIL_HTML = '<p>This is the <strong>HTML</strong> version.</p>'
-go run ./cmd/oci-smtp-mailer
+```bash
+export OCI_EMAIL_TO='first@example.net,second@example.net'
+export OCI_EMAIL_CC='audit@example.net'
+export OCI_EMAIL_TEXT='This is the plain-text version.'
+export OCI_EMAIL_HTML='<p>This is the <strong>HTML</strong> version.</p>'
+./bin/oci-smtp-mailer
 ```
 
 ### Dry run
@@ -173,7 +477,7 @@ go run ./cmd/oci-smtp-mailer
 Inspect the generated MIME message without contacting OCI:
 
 ```bash
-go run ./cmd/oci-smtp-mailer -dry-run
+./bin/oci-smtp-mailer -dry-run
 ```
 
 The dry run still validates configuration and therefore requires placeholder SMTP credentials, but it does not print the password or open a network connection.
@@ -263,6 +567,27 @@ Never commit SMTP credentials, paste them into tickets or presentations, or reus
 
 The [full runbook](docs/oci-email-delivery-setup.md) contains a longer troubleshooting matrix and production-readiness checklist.
 
+## Production readiness checklist
+
+- [ ] The target region and non-root compartment are documented.
+- [ ] A dedicated non-human IAM user owns the SMTP credentials.
+- [ ] The runtime group has `use email-family` and no unnecessary administration permissions.
+- [ ] The SMTP username and password are held in a secret manager or protected Linux runtime configuration.
+- [ ] The email domain exists in every region that will send mail.
+- [ ] `OutboundAccepted` and `OutboundRelayed` logs are enabled and searchable.
+- [ ] Public DNS returns one valid SPF record containing the correct regional OCI include.
+- [ ] OCI reports the DKIM selector as active and a received test message passes DKIM.
+- [ ] DMARC reports are monitored before moving beyond `p=none`.
+- [ ] The exact sender or DKIM-enabled `@domain` sender is approved in the endpoint's region.
+- [ ] Linux DNS resolution and implicit TLS connectivity to port `465` have been tested.
+- [ ] The application uses the endpoint copied from the OCI Configuration page.
+- [ ] The client passes `go test`, `go vet`, and the dry-run MIME inspection.
+- [ ] A controlled live message appears in accepted and relayed logs and reaches the test mailbox.
+- [ ] Tenancy limits and compartment quotas cover planned recipients, rate, and encoded message size.
+- [ ] Retry logic backs off on temporary errors and does not retry permanent failures indefinitely.
+- [ ] Bounce, complaint, unsubscribe, and suppression-list operating procedures have named owners.
+- [ ] SMTP credential and DKIM rotation procedures are scheduled and tested.
+
 ## Release automation
 
 Every push to `main` runs tests and `go vet`. After they succeed, the workflow creates exactly one GitHub release for that commit:
@@ -274,12 +599,19 @@ Every push to `main` runs tests and `go vet`. After they succeed, the workflow c
 
 ## Official references
 
-- [OCI Email Delivery documentation](https://docs.oracle.com/en-us/iaas/Content/Email/home.htm)
-- [Getting started with Email Delivery](https://docs.oracle.com/en-us/iaas/Content/Email/Concepts/overview.htm)
-- [Configuring SMTP connection](https://docs.oracle.com/en-us/iaas/Content/Email/Tasks/configuresmtpconnection.htm)
-- [Managing approved senders](https://docs.oracle.com/en-us/iaas/Content/Email/Tasks/managingapprovedsenders.htm)
-- [Managing email domains](https://docs.oracle.com/en-us/iaas/Content/Email/Tasks/managingemaildomains.htm)
-- [Email Delivery metrics](https://docs.oracle.com/en-us/iaas/Content/Email/Reference/emailmetrics.htm)
+- [OCI Email Delivery getting-started sequence](https://docs.oracle.com/en-us/iaas/Content/Email/Reference/gettingstarted.htm)
+- [Email Delivery overview, regionality, and limits](https://docs.oracle.com/en-us/iaas/Content/Email/Concepts/overview.htm)
+- [Creating Email Delivery IAM policies](https://docs.oracle.com/en-us/iaas/Content/Email/Reference/gettingstarted_topic-create-policy.htm)
+- [Creating SMTP credentials](https://docs.oracle.com/en-us/iaas/Content/Email/Concepts/create-smtp-credentials.htm)
+- [Creating an email domain and optional return path](https://docs.oracle.com/en-us/iaas/Content/Email/Reference/gettingstarted_topic-create-email-domain.htm)
+- [Configuring SPF](https://docs.oracle.com/en-us/iaas/Content/Email/Tasks/configurespf.htm)
+- [Creating a DKIM record](https://docs.oracle.com/en-us/iaas/Content/Email/Tasks/managing_dkim-create_dkim_record.htm)
+- [Creating an approved sender](https://docs.oracle.com/en-us/iaas/Content/Email/Reference/gettingstarted_topic-Create_an_approved_sender.htm)
+- [Configuring the encrypted SMTP connection](https://docs.oracle.com/en-us/iaas/Content/Email/Reference/gettingstarted_topic-Configure_the_SMTP_connection.htm)
+- [Email Delivery IAM policy reference](https://docs.oracle.com/en-us/iaas/Content/Identity/policyreference/emailpolicyreference.htm)
+- [Metrics and logs](https://docs.oracle.com/en-us/iaas/Content/Email/Reference/guide-to-metrics-logs.htm)
+- [Searching Email Delivery logs](https://docs.oracle.com/en-us/iaas/Content/Email/Reference/log-guide.htm)
+- [Managing the suppression list](https://docs.oracle.com/en-us/iaas/Content/Email/Tasks/managingsuppressionlist.htm)
 
 ## License
 

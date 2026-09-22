@@ -1,6 +1,6 @@
 # Oracle Cloud Infrastructure Email Delivery: configuration runbook
 
-This runbook describes a production-oriented SMTP setup for OCI Email Delivery and shows how to use the included Go client. It was checked against Oracle documentation on 22 September 2026. OCI menus and account limits can change, so use the values shown in your tenancy when they differ from examples here.
+This runbook describes a production-oriented SMTP setup for OCI Email Delivery and shows how to use the included Go client. Linux is the primary runtime; PowerShell remains available for secondary testing. It was checked against Oracle documentation on 22 September 2026. OCI menus and account limits can change, so use the values shown in your tenancy when they differ from examples here.
 
 > This project is independent and is not affiliated with, endorsed by, or supported by Oracle or any Oracle product team.
 
@@ -253,7 +253,7 @@ Optional variables:
 | `OCI_EMAIL_SUBJECT` | `OCI Email Delivery test` | Message subject |
 | `OCI_SMTP_TIMEOUT` | `30s` | Overall connection and SMTP deadline |
 
-PowerShell:
+PowerShell (secondary test environment):
 
 ```powershell
 Set-Location <toolkit-directory>
@@ -269,7 +269,7 @@ $env:OCI_EMAIL_TEXT = 'This message validates the OCI SMTP configuration.'
 go run ./cmd/oci-smtp-mailer
 ```
 
-Linux or macOS:
+Linux (primary runtime) or macOS:
 
 ```bash
 cd <toolkit-directory>
@@ -303,6 +303,7 @@ Build and test:
 
 ```bash
 go test ./...
+go vet ./...
 go build ./cmd/oci-smtp-mailer
 ```
 

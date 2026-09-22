@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.1.0 - 2026-09-22
+
+- Expanded the README with every OCI Console, IAM, DNS, logging, sender, TLS, limits, and validation step required for Email Delivery.
+- Made Linux the primary documented runtime with build, secure secret-loading, connectivity, and execution procedures.
+- Added a production-readiness checklist and refreshed the official Oracle reference links.
+
 ## 1.0.0 - 2026-09-22
 
 - Added three OCI Email Delivery training presentations.
