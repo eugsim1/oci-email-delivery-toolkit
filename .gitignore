@@ -1,0 +1,9 @@
+.env
+*.log
+/oci-smtp-mailer
+/oci-smtp-mailer.exe
+dist/
+.gocache/
+*.zip
+release-notes.md
+.DS_Store

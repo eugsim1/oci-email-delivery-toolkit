@@ -1,0 +1,65 @@
+name: Test and release
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the tested commit
+        uses: actions/checkout@v4
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Run unit tests
+        run: go test ./...
+      - name: Run static checks
+        run: go vet ./...
+
+  release:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Check out the tested commit
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Prepare release metadata and archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          awk 'BEGIN { copy=0 } /^## / { if (copy) exit; copy=1 } copy { print }' CHANGELOG.md > release-notes.md
+          title="$(head -n 1 release-notes.md | sed 's/^## //')"
+          test -n "$title"
+          tag="commit-${GITHUB_SHA}"
+          archive="oci-email-delivery-toolkit-${GITHUB_SHA:0:12}.zip"
+          git archive --format=zip --output="$archive" HEAD
+          echo "RELEASE_TITLE=$title" >> "$GITHUB_ENV"
+          echo "RELEASE_TAG=$tag" >> "$GITHUB_ENV"
+          echo "RELEASE_ARCHIVE=$archive" >> "$GITHUB_ENV"
+
+      - name: Create one release for this commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "Release $RELEASE_TAG already exists; nothing to create."
+            exit 0
+          fi
+          gh release create "$RELEASE_TAG" "$RELEASE_ARCHIVE" \
+            --target "$GITHUB_SHA" \
+            --title "$RELEASE_TITLE" \
+            --notes-file release-notes.md

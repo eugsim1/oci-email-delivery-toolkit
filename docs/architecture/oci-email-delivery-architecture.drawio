@@ -1,0 +1,111 @@
+<mxfile host="app.diagrams.net" modified="2026-09-22T00:00:00.000Z" agent="Codex" version="24.7.17" type="device" compressed="false">
+  <diagram id="oci-email-delivery" name="Architecture">
+    <mxGraphModel dx="1600" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="900" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+        <mxCell id="bg" value="" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#F7F8FA;strokeColor=none;" vertex="1" parent="1">
+          <mxGeometry x="0" y="0" width="1600" height="900" as="geometry"/>
+        </mxCell>
+        <mxCell id="title" value="OCI Email Delivery — secure SMTP submission architecture" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=30;fontStyle=1;fontColor=#172B4D;" vertex="1" parent="1">
+          <mxGeometry x="70" y="42" width="1100" height="45" as="geometry"/>
+        </mxCell>
+        <mxCell id="subtitle" value="Regional delivery path with identity, DNS trust, observability, and suppression controls" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=16;fontColor=#5E6C84;" vertex="1" parent="1">
+          <mxGeometry x="72" y="88" width="1050" height="30" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="app" value="&lt;b&gt;Go application&lt;/b&gt;&lt;br&gt;&lt;br&gt;Builds MIME message&lt;br&gt;Validates addresses and headers&lt;br&gt;Uses protected environment secrets" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;fillColor=#FFFFFF;strokeColor=#2E3A59;strokeWidth=2;fontSize=15;fontColor=#172B4D;spacing=14;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="70" y="185" width="260" height="185" as="geometry"/>
+        </mxCell>
+        <mxCell id="appBadge" value="APPLICATION" style="rounded=1;whiteSpace=wrap;html=1;arcSize=40;fillColor=#E8F3FF;strokeColor=#4C9AFF;fontColor=#0747A6;fontSize=11;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="92" y="164" width="112" height="28" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="smtp" value="&lt;b&gt;SMTP submission&lt;/b&gt;&lt;br&gt;&lt;br&gt;Implicit TLS on TCP 465&lt;br&gt;TLS 1.2+ certificate validation&lt;br&gt;SMTP AUTH with OCI credentials" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;fillColor=#FFF7E6;strokeColor=#FF8B00;strokeWidth=2;fontSize=15;fontColor=#172B4D;spacing=14;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="420" y="185" width="285" height="185" as="geometry"/>
+        </mxCell>
+        <mxCell id="smtpBadge" value="ENCRYPTED CHANNEL" style="rounded=1;whiteSpace=wrap;html=1;arcSize=40;fillColor=#FFEBCC;strokeColor=#FF8B00;fontColor=#974F0C;fontSize=11;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="445" y="164" width="148" height="28" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="ociGroup" value="" style="rounded=1;whiteSpace=wrap;html=1;arcSize=10;fillColor=#FFF1F0;strokeColor=#C74634;strokeWidth=3;dashed=0;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="795" y="135" width="405" height="285" as="geometry"/>
+        </mxCell>
+        <mxCell id="ociTitle" value="OCI EMAIL DELIVERY — SELECTED REGION" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;fontSize=15;fontStyle=1;fontColor=#9A2A1B;" vertex="1" parent="1">
+          <mxGeometry x="820" y="150" width="350" height="35" as="geometry"/>
+        </mxCell>
+        <mxCell id="endpoint" value="&lt;b&gt;Regional SMTP endpoint&lt;/b&gt;&lt;br&gt;Authentication and sender authorization" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#FFFFFF;strokeColor=#C74634;strokeWidth=1.5;fontSize=14;fontColor=#172B4D;spacing=10;" vertex="1" parent="1">
+          <mxGeometry x="825" y="198" width="345" height="65" as="geometry"/>
+        </mxCell>
+        <mxCell id="domain" value="&lt;b&gt;Email domain / approved sender&lt;/b&gt;&lt;br&gt;Regional sending authorization" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#FFFFFF;strokeColor=#C74634;strokeWidth=1.5;fontSize=14;fontColor=#172B4D;spacing=10;" vertex="1" parent="1">
+          <mxGeometry x="825" y="277" width="345" height="65" as="geometry"/>
+        </mxCell>
+        <mxCell id="relay" value="&lt;b&gt;Acceptance and relay&lt;/b&gt;&lt;br&gt;Policy, limits, suppression, downstream SMTP" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#FFFFFF;strokeColor=#C74634;strokeWidth=1.5;fontSize=14;fontColor=#172B4D;spacing=10;" vertex="1" parent="1">
+          <mxGeometry x="825" y="356" width="345" height="45" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="recipient" value="&lt;b&gt;Recipient provider&lt;/b&gt;&lt;br&gt;&lt;br&gt;Validates SPF / DKIM / DMARC&lt;br&gt;Accepts, defers, filters, or rejects&lt;br&gt;Places message in inbox or junk" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;fillColor=#E3FCEF;strokeColor=#00875A;strokeWidth=2;fontSize=15;fontColor=#172B4D;spacing=14;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="1290" y="185" width="250" height="185" as="geometry"/>
+        </mxCell>
+        <mxCell id="recipientBadge" value="DESTINATION" style="rounded=1;whiteSpace=wrap;html=1;arcSize=40;fillColor=#ABF5D1;strokeColor=#00875A;fontColor=#006644;fontSize=11;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="1312" y="164" width="112" height="28" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="flow1" value="MIME message" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#2E3A59;strokeWidth=3;endArrow=block;endFill=1;fontSize=12;fontStyle=1;labelBackgroundColor=#F7F8FA;" edge="1" parent="1" source="app" target="smtp">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="flow2" value="SMTP AUTH" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#C74634;strokeWidth=3;endArrow=block;endFill=1;fontSize=12;fontStyle=1;labelBackgroundColor=#F7F8FA;" edge="1" parent="1" source="smtp" target="endpoint">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="flow3" value="Internet SMTP" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#00875A;strokeWidth=3;endArrow=block;endFill=1;fontSize=12;fontStyle=1;labelBackgroundColor=#F7F8FA;" edge="1" parent="1" source="relay" target="recipient">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="controlsTitle" value="CONTROL PLANE AND OPERATIONAL GUARDRAILS" style="text;html=1;strokeColor=none;fillColor=#F7F8FA;align=center;verticalAlign=middle;fontSize=13;fontStyle=1;fontColor=#5E6C84;" vertex="1" parent="1">
+          <mxGeometry x="570" y="478" width="410" height="30" as="geometry"/>
+        </mxCell>
+        <mxCell id="iam" value="&lt;b&gt;IAM &amp;amp; secrets&lt;/b&gt;&lt;br&gt;&lt;br&gt;Dedicated user&lt;br&gt;Least-privilege group/policy&lt;br&gt;Generated SMTP credential&lt;br&gt;Secret storage and rotation" style="rounded=1;whiteSpace=wrap;html=1;arcSize=10;fillColor=#E8F3FF;strokeColor=#4C9AFF;strokeWidth=2;fontSize=14;fontColor=#172B4D;spacing=12;" vertex="1" parent="1">
+          <mxGeometry x="70" y="530" width="310" height="170" as="geometry"/>
+        </mxCell>
+        <mxCell id="dns" value="&lt;b&gt;Domain trust&lt;/b&gt;&lt;br&gt;&lt;br&gt;One valid SPF record&lt;br&gt;OCI DKIM selector / CNAME&lt;br&gt;Aligned DMARC policy&lt;br&gt;DNS ownership and review" style="rounded=1;whiteSpace=wrap;html=1;arcSize=10;fillColor=#FFF7E6;strokeColor=#FF8B00;strokeWidth=2;fontSize=14;fontColor=#172B4D;spacing=12;" vertex="1" parent="1">
+          <mxGeometry x="450" y="530" width="310" height="170" as="geometry"/>
+        </mxCell>
+        <mxCell id="observability" value="&lt;b&gt;Observability&lt;/b&gt;&lt;br&gt;&lt;br&gt;OutboundAccepted logs&lt;br&gt;OutboundRelayed logs&lt;br&gt;Delivery metrics and alarms&lt;br&gt;Application correlation IDs" style="rounded=1;whiteSpace=wrap;html=1;arcSize=10;fillColor=#EAE6FF;strokeColor=#6554C0;strokeWidth=2;fontSize=14;fontColor=#172B4D;spacing=12;" vertex="1" parent="1">
+          <mxGeometry x="830" y="530" width="310" height="170" as="geometry"/>
+        </mxCell>
+        <mxCell id="protection" value="&lt;b&gt;Delivery protection&lt;/b&gt;&lt;br&gt;&lt;br&gt;Suppression management&lt;br&gt;Quotas and rate limits&lt;br&gt;Bounce / complaint hygiene&lt;br&gt;Retry with backoff and jitter" style="rounded=1;whiteSpace=wrap;html=1;arcSize=10;fillColor=#E3FCEF;strokeColor=#00875A;strokeWidth=2;fontSize=14;fontColor=#172B4D;spacing=12;" vertex="1" parent="1">
+          <mxGeometry x="1210" y="530" width="310" height="170" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="control1" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#4C9AFF;strokeWidth=2;dashed=1;dashPattern=6 6;endArrow=open;endFill=0;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;" edge="1" parent="1" source="iam" target="app">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="control2" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#FF8B00;strokeWidth=2;dashed=1;dashPattern=6 6;endArrow=open;endFill=0;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;" edge="1" parent="1" source="dns" target="domain">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="control3" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#6554C0;strokeWidth=2;dashed=1;dashPattern=6 6;endArrow=open;endFill=0;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;" edge="1" parent="1" source="observability" target="ociGroup">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="control4" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#00875A;strokeWidth=2;dashed=1;dashPattern=6 6;endArrow=open;endFill=0;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;" edge="1" parent="1" source="protection" target="relay">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="globalLabel" value="GLOBAL / IAM" style="rounded=1;whiteSpace=wrap;html=1;arcSize=40;fillColor=#DFE1E6;strokeColor=none;fontColor=#42526E;fontSize=11;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="70" y="755" width="115" height="28" as="geometry"/>
+        </mxCell>
+        <mxCell id="globalText" value="SMTP credentials belong to an IAM user and can be used against the selected regional endpoint." style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;fontSize=12;fontColor=#5E6C84;" vertex="1" parent="1">
+          <mxGeometry x="200" y="749" width="570" height="40" as="geometry"/>
+        </mxCell>
+        <mxCell id="regionalLabel" value="REGIONAL" style="rounded=1;whiteSpace=wrap;html=1;arcSize=40;fillColor=#FFEBE6;strokeColor=none;fontColor=#9A2A1B;fontSize=11;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="830" y="755" width="100" height="28" as="geometry"/>
+        </mxCell>
+        <mxCell id="regionalText" value="Endpoint, domain, approved sender, logging, metrics, and suppression controls must be operated in the intended region." style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;fontSize=12;fontColor=#5E6C84;" vertex="1" parent="1">
+          <mxGeometry x="945" y="749" width="575" height="40" as="geometry"/>
+        </mxCell>
+        <mxCell id="footer" value="Security baseline: least privilege • TLS 1.2+ • managed secrets • SPF + DKIM + DMARC • logs before launch • suppression hygiene" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#172B4D;strokeColor=#172B4D;fontColor=#FFFFFF;fontSize=14;fontStyle=1;align=center;" vertex="1" parent="1">
+          <mxGeometry x="70" y="815" width="1450" height="48" as="geometry"/>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
