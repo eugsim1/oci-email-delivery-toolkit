@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.1.1 - 2026-09-22
+
+- Updated the GitHub Actions checkout and Go setup steps to Node.js 24-compatible major versions.
+
 ## 1.1.0 - 2026-09-22
 
 - Expanded the README with every OCI Console, IAM, DNS, logging, sender, TLS, limits, and validation step required for Email Delivery.
