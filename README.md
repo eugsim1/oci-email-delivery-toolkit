@@ -1,6 +1,6 @@
 # OCI Email Delivery toolkit
 
-An implementation-ready package for sending application email and file attachments through Oracle Cloud Infrastructure (OCI) Email Delivery. It combines training material, an editable architecture diagram, a detailed configuration runbook, and a dependency-free Go SMTP client for Linux servers.
+An implementation-ready package for sending application email and file attachments through Oracle Cloud Infrastructure (OCI) Email Delivery. It combines training material, an editable architecture diagram, a detailed configuration runbook, a dependency-free Go SMTP client, and a simple Bash and curl alternative for Linux servers.
 
 > **Disclaimer:** This project is independent and is not affiliated with, endorsed by, or supported by Oracle or any Oracle product team. Validate all settings, limits, prices, and security requirements against the current official Oracle documentation and your organization's policies before production use.
 
@@ -20,6 +20,8 @@ The editable source is available as [a draw.io diagram](docs/architecture/oci-em
 | `docs/oci-email-delivery-setup.md` | Complete implementation and operations runbook |
 | `docs/architecture/oci-email-delivery-architecture.drawio` | Editable system architecture |
 | `cmd/oci-smtp-mailer` | Linux Go SMTP client supporting TLS, STARTTLS, text/HTML bodies, and file attachments |
+| `scripts/send-email.sh` | Simple Bash and curl alternative for plain-text mail over implicit TLS |
+| `tests/test-send-email.sh` | Offline dry-run and input-validation tests for the Bash client |
 | `.env.example` | Configuration template containing no credentials |
 | `.github/workflows/release.yml` | Test-gated, commit-based GitHub release automation |
 
@@ -44,7 +46,7 @@ OCI Email Delivery is a sending service rather than an inbox service: it does no
 - An OCI tenancy and access to the target region.
 - Permission to manage users or groups, policies, Email Delivery resources, and logs.
 - Administrative access to the sending domain's public DNS.
-- Go 1.21 or later for the sample client.
+- Go 1.21 or later for the full sample client, or Bash plus a curl build with SMTP and TLS support for the simple alternative.
 - Outbound network access to the OCI endpoint, normally TCP port `465` for implicit TLS.
 - A test recipient that you are authorized to contact.
 
@@ -305,9 +307,9 @@ OCI requires encryption in transit. Port `465` negotiates TLS as soon as the con
 5. If the connection fails, review outbound firewall, proxy, NAT, route-table, network-security-group, security-list, and host-firewall rules. Only outbound connectivity is required; do not expose an inbound SMTP listener.
 6. Complete SPF and DKIM before requesting a limit increase. Check the actual Console limits because account type and approved increases can change the defaults.
 
-## Linux installation and Go client configuration
+## Linux clients and shared configuration
 
-Linux is the primary supported runtime for the included client. The executable sends one message and exits, making it suitable for application invocation, batch jobs, schedulers, and container workloads. It is not a long-running SMTP server and does not open an inbound network port.
+Linux is the primary supported runtime. Choose the Bash client for a small plain-text submission with no compilation, or the Go client for HTML, attachments, STARTTLS, encoded-size enforcement, richer MIME handling, and stricter mailbox parsing. Both send one message and exit; neither is a long-running SMTP server or opens an inbound network port.
 
 The program reads environment variables directly; it intentionally does not parse `.env` files. In production, inject values from a secret manager, container secret, protected service environment, or root-controlled environment file.
 
@@ -315,20 +317,127 @@ The program reads environment variables directly; it intentionally does not pars
 | --- | --- | --- | --- |
 | `OCI_SMTP_HOST` | Yes | — | Exact regional public SMTP endpoint copied from OCI |
 | `OCI_SMTP_PORT` | No | `465` | SMTP port |
-| `OCI_SMTP_MODE` | No | `tls` | `tls` for implicit TLS or `starttls` |
+| `OCI_SMTP_MODE` | Go only | `tls` | `tls` for implicit TLS or `starttls`; Bash always uses implicit TLS |
 | `OCI_SMTP_USERNAME` | Yes | — | Oracle-generated SMTP username |
 | `OCI_SMTP_PASSWORD` | Yes | — | Oracle-generated SMTP password |
 | `OCI_EMAIL_FROM` | Yes | — | Authorized sender address |
 | `OCI_EMAIL_TO` | Yes | — | Comma-separated recipient list |
 | `OCI_EMAIL_CC` | No | empty | Comma-separated CC list |
 | `OCI_EMAIL_SUBJECT` | No | `OCI Email Delivery test` | Message subject; CR/LF is rejected |
-| `OCI_EMAIL_TEXT` | Conditional | empty | Plain-text body; set this, HTML, or both |
-| `OCI_EMAIL_HTML` | Conditional | empty | HTML body; set this, text, or both |
-| `OCI_EMAIL_ATTACHMENTS` | No | empty | Linux colon-separated attachment paths; relative paths use the process working directory |
-| `OCI_EMAIL_MAX_BYTES` | No | `2000000` | Maximum complete encoded MIME size, including headers and base64 |
-| `OCI_SMTP_TIMEOUT` | No | `30s` | Positive Go duration for network operations |
+| `OCI_EMAIL_TEXT` | Yes for Bash; conditional for Go | empty | Plain-text body; the Go client accepts text, HTML, or both |
+| `OCI_EMAIL_HTML` | Go only | empty | HTML body |
+| `OCI_EMAIL_ATTACHMENTS` | Go only | empty | Linux colon-separated attachment paths; relative paths use the process working directory |
+| `OCI_EMAIL_MAX_BYTES` | Go only | `2000000` | Maximum complete encoded MIME size, including headers and base64 |
+| `OCI_SMTP_TIMEOUT` | Go only | `30s` | Positive Go duration for network operations |
+| `OCI_CURL_CONNECT_TIMEOUT` | Bash only | `30` | Positive integer connection timeout in seconds |
 
 Copy `.env.example` only as a field reference. Never commit a populated copy.
+
+## Bash and curl alternative
+
+[`scripts/send-email.sh`](scripts/send-email.sh) uses curl's SMTP support to submit a plain-text MIME message to OCI over implicit TLS on port `465`. It supports comma-separated To and CC recipients and shares the core environment variables with the Go client. It intentionally does not support HTML, attachments, STARTTLS, display-name addresses, BCC, or full internationalized-header encoding; use the Go client when those capabilities are required.
+
+The Bash client requires:
+
+- Bash;
+- `curl` built with SMTP and TLS support;
+- `mktemp`, `date`, and standard Linux core utilities; and
+- outbound connectivity to the exact regional SMTP hostname on port `465`.
+
+Check the installed curl protocols before use:
+
+```bash
+curl --version
+curl --version | grep -E 'Protocols:.*smtps'
+```
+
+### Bash example 1 — Send a basic message
+
+Prompt for the Oracle-generated SMTP password so it is not written to shell history:
+
+```bash
+export OCI_SMTP_HOST='smtp.email.eu-frankfurt-1.oci.oraclecloud.com'
+export OCI_SMTP_PORT='465'
+export OCI_SMTP_USERNAME='<oracle-generated-smtp-user>'
+read -rsp 'OCI SMTP password: ' OCI_SMTP_PASSWORD
+printf '\n'
+export OCI_SMTP_PASSWORD
+
+export OCI_EMAIL_FROM='no-reply@mail.example.com'
+export OCI_EMAIL_TO='recipient@example.net'
+export OCI_EMAIL_SUBJECT='OCI Email Delivery Bash test'
+export OCI_EMAIL_TEXT='Hello from OCI Email Delivery using Bash and curl.'
+
+./scripts/send-email.sh
+unset OCI_SMTP_PASSWORD OCI_SMTP_USERNAME
+```
+
+Expected success output:
+
+```text
+Email accepted by OCI Email Delivery for 1 recipient(s).
+```
+
+SMTP acceptance is not confirmation of inbox delivery. Verify `OutboundAccepted`, `OutboundRelayed`, and the recipient mailbox.
+
+### Bash example 2 — Multiple To and CC recipients
+
+Use comma-separated bare addresses and a multiline plain-text body:
+
+```bash
+export OCI_EMAIL_TO='first@example.net,second@example.net'
+export OCI_EMAIL_CC='audit@example.net,operations@example.net'
+export OCI_EMAIL_SUBJECT='Nightly processing summary'
+export OCI_EMAIL_TEXT=$'The nightly process completed.\nReview the OCI logs for delivery status.'
+
+./scripts/send-email.sh
+```
+
+The success count includes both To and CC envelope recipients.
+
+### Bash example 3 — Load a protected environment file
+
+The script does not parse `.env` automatically. Source a root-controlled file only if its contents and ownership are trusted:
+
+```bash
+sudo -u oci-mailer sh -c '
+  set -a
+  . /etc/oci-smtp-mailer/runtime.env
+  set +a
+  exec /opt/oci-email-delivery-toolkit/scripts/send-email.sh
+'
+```
+
+Add `OCI_CURL_CONNECT_TIMEOUT=30` to that file when the default is not suitable. Keep the file owned by `root:oci-mailer` with mode `0640`, as described in the protected runtime configuration below.
+
+### Bash example 4 — Inspect the MIME message without sending
+
+Dry-run mode validates the sender, recipient lists, subject, and body but does not require curl, the SMTP endpoint, or credentials:
+
+```bash
+umask 077
+OCI_EMAIL_FROM='no-reply@mail.example.com' \
+OCI_EMAIL_TO='recipient@example.net' \
+OCI_EMAIL_SUBJECT='Dry-run inspection' \
+OCI_EMAIL_TEXT='No network connection is made.' \
+./scripts/send-email.sh --dry-run > /tmp/oci-bash-message.eml
+
+sed -n '1,30p' /tmp/oci-bash-message.eml
+rm -f /tmp/oci-bash-message.eml
+```
+
+Treat the `.eml` output as sensitive whenever the message contains confidential information.
+
+### Bash security behavior and limitations
+
+- The SMTP URL is always `smtps://` and curl is instructed to require TLS 1.2 or newer and validate the server certificate.
+- The script rejects CR/LF in sender, recipient, subject, username, and password values to reduce header and curl-configuration injection risk.
+- Recipient fields accept bare addresses only, such as `recipient@example.net`; use the Go client for display names and fuller RFC mailbox parsing.
+- The SMTP username and password are written only to a mode-`0600` temporary curl configuration file, rather than command-line arguments, and removed by an exit trap.
+- The credential still exists in the script's environment and protected temporary file during execution. Run under a dedicated account and use an approved secret-injection mechanism.
+- Plain-text bodies are emitted as UTF-8. Use the Go client for HTML, attachments, MIME-safe internationalized headers, message-size enforcement, or STARTTLS.
+
+## Go SMTP client
 
 ### Command-line flags
 
@@ -539,7 +648,7 @@ rm -f /tmp/oci-message.eml
 
 The dry run requires valid `OCI_EMAIL_FROM`, `OCI_EMAIL_TO`, body, attachment, and size settings, but it does not require the SMTP host or credentials. It never prints a password or opens a network connection. Treat the generated `.eml` file as sensitive if the message or attachments contain confidential data.
 
-## Client security behavior
+## Go client security behavior
 
 - Requires TLS 1.2 or newer and validates the SMTP server certificate.
 - Supports implicit TLS and STARTTLS; it never silently falls back to plaintext.
@@ -558,9 +667,11 @@ The dry run requires valid `OCI_EMAIL_FROM`, `OCI_EMAIL_TO`, body, attachment, a
 go test ./...
 go vet ./...
 go build -o oci-smtp-mailer ./cmd/oci-smtp-mailer
+bash -n scripts/send-email.sh tests/test-send-email.sh
+bash tests/test-send-email.sh
 ```
 
-No third-party Go modules are required. Tests cover address parsing, header-injection rejection, multipart construction, validation, and configuration defaults.
+No third-party Go modules are required. Go tests cover address parsing, header-injection rejection, multipart construction, validation, and configuration defaults. Bash tests exercise dry-run MIME generation, multiple recipients, and rejection of header injection and invalid addresses without contacting OCI.
 
 ## Delivery validation
 
@@ -617,6 +728,9 @@ Never commit SMTP credentials, paste them into tickets or presentations, or reus
 | Symptom | Likely cause | Checks and action |
 | --- | --- | --- |
 | `535 Authentication failed` | Wrong credential type, stale secret, or copied value | Use the Oracle-generated SMTP username/password; rotate if uncertain |
+| `curl: (67) Login denied` | Bash client received rejected SMTP credentials | Confirm the Oracle-generated username/password and rotate the credential if uncertain |
+| `curl: (60) SSL certificate problem` | Local CA trust, interception, hostname, or clock issue | Do not disable certificate validation; verify the endpoint, CA bundle, TLS interception policy, and system time |
+| Bash client rejects an address | Display name, whitespace, angle brackets, or malformed bare address | Supply comma-separated bare addresses such as `recipient@example.net`, or use the Go client for display names |
 | Sender not authorized | Sender or domain not approved in the endpoint's region | Verify the exact `From`, email domain/DKIM status, compartment, and region |
 | TLS/connect timeout | Egress, firewall, proxy, DNS, endpoint, or port issue | Test name resolution and TCP 465; copy the endpoint from OCI |
 | Accepted but not received | Relay failure, suppression, filtering, or reputation | Check both OCI log types, suppression list, bounce response, and recipient junk folder |
@@ -645,7 +759,7 @@ The [full runbook](docs/oci-email-delivery-setup.md) contains a longer troublesh
 - [ ] The exact sender or DKIM-enabled `@domain` sender is approved in the endpoint's region.
 - [ ] Linux DNS resolution and implicit TLS connectivity to port `465` have been tested.
 - [ ] The application uses the endpoint copied from the OCI Configuration page.
-- [ ] The client passes `go test`, `go vet`, and the dry-run MIME inspection.
+- [ ] The selected client passes its Go or Bash tests and a dry-run MIME inspection.
 - [ ] Every attachment path is absolute, readable only by intended runtime identities, and points to a regular file.
 - [ ] The configured encoded-message limit matches the active OCI tenancy limit, and representative attachments pass dry-run validation.
 - [ ] A controlled live message appears in accepted and relayed logs and reaches the test mailbox.
@@ -656,7 +770,7 @@ The [full runbook](docs/oci-email-delivery-setup.md) contains a longer troublesh
 
 ## Release automation
 
-Every push to `main` runs tests and `go vet`. After they succeed, the workflow creates exactly one GitHub release for that commit:
+Every push to `main` runs Go tests, `go vet`, Bash syntax validation, and offline Bash dry-run tests. After they succeed, the workflow creates exactly one GitHub release for that commit:
 
 - the tag is `commit-<full-git-sha>`, so reruns are idempotent;
 - the title and notes come from the newest `##` section in `CHANGELOG.md`;

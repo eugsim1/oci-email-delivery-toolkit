@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.3.0 - 2026-09-23
+
+- Added a simple Bash and curl alternative for plain-text OCI Email Delivery submissions over implicit TLS on port 465.
+- Added dry-run validation, multiple To/CC recipients, header-injection checks, and protected temporary credential handling.
+- Added Bash tests and README examples for interactive use, multiple recipients, protected environment files, and MIME inspection.
+
 ## 1.2.0 - 2026-09-22
 
 - Added repeatable Linux attachment support to the Go SMTP client with MIME media-type detection and base64 encoding.

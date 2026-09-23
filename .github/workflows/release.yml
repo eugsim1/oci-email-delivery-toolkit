@@ -23,6 +23,10 @@ jobs:
         run: go test ./...
       - name: Run static checks
         run: go vet ./...
+      - name: Validate Bash client
+        run: |
+          bash -n scripts/send-email.sh tests/test-send-email.sh
+          bash tests/test-send-email.sh
 
   release:
     needs: test
