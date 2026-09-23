@@ -1,8 +1,10 @@
 # OCI Email Delivery toolkit
 
+OCI Email Delivery is a managed, regional outbound email service for application-generated transactional and bulk messages, including account notifications, receipts, alerts, verification messages, and permitted marketing communications. Applications submit mail to a region-specific SMTP endpoint using Oracle-generated SMTP credentials and an approved sender or authenticated email domain. OCI provides IAM-based administration, SPF and DKIM support, suppression-list management, service metrics, and delivery logs to help operators secure the sending path, protect domain reputation, and investigate delivery outcomes. It relays outbound messages to recipients' mail providers; it does not host inboxes or provide IMAP or POP mailbox access.
+
 An implementation-ready package for sending application email and file attachments through Oracle Cloud Infrastructure (OCI) Email Delivery. It combines training material, an editable architecture diagram, a detailed configuration runbook, a dependency-free Go SMTP client, and a simple Bash and curl alternative for Linux servers.
 
-> **Disclaimer:** This project is independent and is not affiliated with, endorsed by, or supported by Oracle or any Oracle product team. Validate all settings, limits, prices, and security requirements against the current official Oracle documentation and your organization's policies before production use.
+> **Personal project disclaimer:** This is a personal project, not an Oracle product. This project is independent and is not affiliated with, endorsed by, or supported by Oracle or any Oracle product team. Validate all settings, limits, prices, and security requirements against the current official Oracle documentation and your organization's policies before production use.
 
 The configuration procedure was revalidated against Oracle's official documentation on 22 September 2026. OCI Console labels, service limits, and realm-specific DNS values can change; values displayed in your tenancy take precedence over examples in this repository.
 

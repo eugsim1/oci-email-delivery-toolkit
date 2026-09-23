@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.3.1 - 2026-09-23
+
+- Expanded the README introduction with a detailed overview of OCI Email Delivery, its SMTP submission model, sender controls, authentication, observability, and outbound-only scope.
+- Clarified that the repository is a personal project and is not affiliated with, endorsed by, or supported by Oracle or any Oracle product team.
+
 ## 1.3.0 - 2026-09-23
 
 - Added a simple Bash and curl alternative for plain-text OCI Email Delivery submissions over implicit TLS on port 465.
